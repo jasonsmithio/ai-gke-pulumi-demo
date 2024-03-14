@@ -1,0 +1,10 @@
+name: project
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: A Python program to deploy a Kubernetes cluster on Google Cloud
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: kubernetes-gcp-python
