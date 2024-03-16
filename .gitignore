@@ -1,2 +1,3 @@
 venv/
 Pulumi.test.yaml
+__pycache__/
