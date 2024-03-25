@@ -1,5 +1,7 @@
 import pulumi
 import pulumi_gcp as gcp
+from pulumi_kubernetes.yaml import ConfigFile
+#from k8s import mixtral as mixtral
 
 # Get some provider-namespaced configuration values
 config = pulumi.Config()
@@ -31,14 +33,23 @@ gke_ml_machine_type = config.get("mlMachines", "g2-standard-24")
 #    private_ip_google_access=True
 #)
 
+workload_identity_pool = gcp.iam.WorkloadIdentityPool("my_workload_identity_pool",
+                                                       # Provide a display name for the Workload Identity Pool.
+                                                       display_name="My Workload Identity Pool",
+                                                       # Provide a description for understanding the pool's purpose.
+                                                       description="Workload Identity Pool for external workloads",
+                                                       # Choose a unique ID for this pool.
+                                                       workload_identity_pool_id="my-identity-pool")
+
 # Create a cluster in the new network and subnet
 gke_cluster = gcp.container.Cluster("cluster-1", 
     name = gke_cluster_name,
     location = gcp_region,
     network = gke_network,
     initial_node_count = gke_master_node_count,
-    remove_default_node_pool = True,
+    #remove_default_node_pool = True,
     min_master_version = gke_master_version,
+    enable_autopilot=False,
 )
 
 # Defining the GKE Node Pool
@@ -52,7 +63,7 @@ gke_nodepool = gcp.container.NodePool("nodepool-1",
         preemptible = False,
         machine_type = gke_ml_machine_type,
         disk_size_gb = 20,
-        guest_accelerators=[gcp.compute.InstanceGuestAcceleratorArgs(
+        guest_accelerators=[gcp.container.ClusterNodeConfigGuestAcceleratorArgs(
             type="nvidia-l4",
             count=2,
         )],
@@ -76,6 +87,11 @@ gke_nodepool = gcp.container.NodePool("nodepool-1",
         auto_upgrade = True
     )
 )
+
+#mixtral =  ConfigFile(
+#    "mixtral",
+#    file="k8s/mixtral-huggingface.yaml"
+#)
 
 # Create a GCP service account for the nodepool
 #gke_nodepool_sa = gcp.serviceaccount.Account(

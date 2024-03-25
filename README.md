@@ -1,5 +1,7 @@
 # AI on GKE using Pulumi Demo
 
+This is a very basic tutorial on how to get started with GCP on Cloud. 
+
 Start
 ## Some Basics
 

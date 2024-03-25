@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mixtral-8x7b
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mixtral-8x7b
+  template:
+    metadata:
+      labels:
+        app: mixtral-8x7b
+    spec:
+      containers:
+      - name: mixtral-8x7b
+        image: ghcr.io/huggingface/text-generation-inference:1.4.2
+        resources:
+          limits:
+            nvidia.com/gpu: 2
+        ports:
+        - name: server-port
+          containerPort: 80
+        env:
+        - name: MODEL_ID
+          value: mistralai/Mixtral-8x7B-v0.1
+        - name: NUM_SHARD
+          value: "2"
+        - name: MAX_BATCH_TOTAL_TOKENS
+          value: "1024000"
+        - name: MAX_BATCH_TOKENS
+          value: "32000"
+        - name: PYTORCH_CUDA_ALLOC_CONF
+          value: "max_split_size_mb:512"
+        - name: QUANTIZE
+          value: "bitsandbytes-nf4"
+        #- name: PORT
+        #  value: "3000"
+        volumeMounts:
+          - mountPath: /dev/shm
+            name: dshm
+          - mountPath: /data
+            name: data
+      volumes:
+         - name: dshm
+           emptyDir:
+              medium: Memory
+         - name: data
+           hostPath:
+            path: /mnt/stateful_partition/kube-ephemeral-ssd/mistral-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mixtral-8x7b-service
+  namespace: default
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 80
+  selector:
+    app: mixtral-8x7b
