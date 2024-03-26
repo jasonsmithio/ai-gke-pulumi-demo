@@ -1,6 +1,6 @@
 import pulumi
 import pulumi_gcp as gcp
-import pulumi_kubernetes as k8s
+import pulumi_kubernetes as kubernetes
 #from k8s import mixtral as mixtral
 
 # Get some provider-namespaced configuration values
@@ -62,29 +62,7 @@ gke_cluster = gcp.container.Cluster("cluster-1",
         #    count=1,
         #)],
     ),
-    node_pool_auto_config=gcp.container.ClusterNodePoolAutoscalingArgs(
-        min_node_count=1,
-        max_node_count=4,
-    ),
 )
-
-# Obtain the kubeconfig from our GKE cluster.
-#kubeconfig = gke_cluster.kube_config.apply(lambda config: config.raw_kubeconfig_output)
-
-# Create a Kubernetes provider instance that uses our GKE cluster from above.
-##k8s_provider = k8s.Provider("k8s_provider", kubeconfig=kubeconfig)
-
-# Create a Kubernetes Service Account.
-#ksa = k8s.core.v1.ServiceAccount("ksa", metadata={"namespace": "default"}, opts=pulumi.ResourceOptions(provider=k8s_provider))
-
-# Create a Google Service Account.
-#gsa = gcp.service_account.Account("gsa", account_id="my-gsa")
-
-# Create a IAM policy binding between the Google Service Account and the Kubernetes Service Account.
-#iam_binding = gcp.service_account.IAMBinding("iam_binding",
-#  service_account_id=gsa.name,
-#  role="roles/iam.workloadIdentityUser",
-#  members=[pulumi.Output.all(gke_cluster.location, gke_cluster.name).apply(lambda lc: f"serviceAccount:{lc[0]}.svc.id.goog[default/{ksa.metadata['name']}]#")])
 
 # Defining the GKE Node Pool
 gke_nodepool = gcp.container.NodePool("nodepool-1",
@@ -109,8 +87,6 @@ gke_nodepool = gcp.container.NodePool("nodepool-1",
         )],
         metadata = {
             "install-nvidia-driver": "True",
-            #"nvidia-driver-installer": "https://us.download.nvidia.com/XFree86/Linux-x86_64/",
-            #"nvidia-gpu-driver-version": "390.46",
         },
         oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"],
         shielded_instance_config = gcp.container.NodePoolNodeConfigShieldedInstanceConfigArgs(
@@ -130,11 +106,40 @@ gke_nodepool = gcp.container.NodePool("nodepool-1",
     )
 )
 
-#mixtral =  k8s.yaml.ConfigFile(
-#    "mixtral",
-#    depends_on=[gke_nodepool],
-#    file="k8s/mixtral-huggingface.yaml",
-#)
+# Manufacture a GKE-style Kubeconfig. Note that this is slightly "different" because of the way GKE requires
+# gcloud to be in the picture for cluster authentication (rather than using the client cert/key directly).
+k8s_info = pulumi.Output.all(gke_cluster.name, gke_cluster.endpoint, gke_cluster.master_auth)
+k8s_config = k8s_info.apply(
+    lambda info: """apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: {0}
+    server: https://{1}
+  name: {2}
+contexts:
+- context:
+    cluster: {2}
+    user: {2}
+  name: {2}
+current-context: {2}
+kind: Config
+preferences: {{}}
+users:
+- name: {2}
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: gke-gcloud-auth-plugin
+      installHint: Install gke-gcloud-auth-plugin for use with kubectl by following
+        https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke
+      provideClusterInfo: true
+""".format(info[2]['cluster_ca_certificate'], info[1], '{0}_{1}_{2}'.format(gcp_project, gcp_zone, info[0])))
+
+# Make a Kubernetes provider instance that uses our cluster from above.
+kubeconfig = kubernetes.Provider('gke_k8s', kubeconfig=k8s_config)
+
+# Create a Kubernetes provider instance that uses our cluster from above
+#cluster_provider = kubernetes.Provider('gke_k8s', kubeconfig=kubeconfig)
 
 # Create a GCP service account for the nodepool
 #gke_nodepool_sa = gcp.serviceaccount.Account(
@@ -145,13 +150,12 @@ gke_nodepool = gcp.container.NodePool("nodepool-1",
 #    depends_on=[gke_cluster]
 #)
 
-
-# Build a Kubeconfig to access the cluster
-
-
-# Export some values for use elsewhere
-#pulumi.export("networkName", gke_network.name)
-#pulumi.export("networkId", gke_network.id)
 #pulumi.export("clusterName", gke_cluster.name)
 #pulumi.export("clusterId", gke_cluster.id)
-#pulumi.export("kubeconfig", cluster_kubeconfig)
+
+
+mixtral =  kubernetes.yaml.ConfigFile(
+    "mixtral",
+    file="k8s/mixtral-huggingface.yaml",
+    opts=pulumi.ResourceOptions(provider=kubeconfig,depends_on=[gke_nodepool]),
+)

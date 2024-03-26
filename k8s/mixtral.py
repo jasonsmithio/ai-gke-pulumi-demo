@@ -84,7 +84,7 @@ mixtral8x7b = kubernetes.apps.v1.Deployment("mixtral8x7b",
                 ],
             ),
         ),
-    ))
+    ), opts=pulumi.ResourceOptions(provider=cluster_provider))
 mixtral8x7b_service = kubernetes.core.v1.Service("mixtral8x7bService",
     metadata=kubernetes.meta.v1.ObjectMetaArgs(
         name="mixtral-8x7b-service",
@@ -99,4 +99,4 @@ mixtral8x7b_service = kubernetes.core.v1.Service("mixtral8x7bService",
             "app": "mixtral-8x7b",
         },
         type="LoadBalancer",
-    ))
+    )),
