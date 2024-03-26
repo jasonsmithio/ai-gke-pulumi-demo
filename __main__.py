@@ -1,11 +1,11 @@
 import pulumi
 import pulumi_gcp as gcp
-from pulumi_kubernetes.yaml import ConfigFile
+import pulumi_kubernetes as k8s
 #from k8s import mixtral as mixtral
 
 # Get some provider-namespaced configuration values
 config = pulumi.Config()
-gcp_project = config.get("projects")
+gcp_project = config.get("project")
 gcp_region = config.get("region", "us-central1")
 gcp_zone = config.get("zone", "us-central1-a")
 gke_network = config.get("gkeNetwork", "default")
@@ -15,7 +15,7 @@ gke_master_node_count = config.get_int("nodesPerZone", 1)
 
 #setting unique values for the nodepool
 gke_nodepool_name = config.get("nodepoolName", "mixtral-nodepool")
-gke_nodepool_node_count = config.get_int("nodesPerZone", 1)
+gke_nodepool_node_count = config.get_int("nodesPerZone", 2)
 gke_ml_machine_type = config.get("mlMachines", "g2-standard-24")
 
 # Create a new network
@@ -33,24 +33,58 @@ gke_ml_machine_type = config.get("mlMachines", "g2-standard-24")
 #    private_ip_google_access=True
 #)
 
-workload_identity_pool = gcp.iam.WorkloadIdentityPool("my_workload_identity_pool",
-                                                       # Provide a display name for the Workload Identity Pool.
-                                                       display_name="My Workload Identity Pool",
-                                                       # Provide a description for understanding the pool's purpose.
-                                                       description="Workload Identity Pool for external workloads",
-                                                       # Choose a unique ID for this pool.
-                                                       workload_identity_pool_id="my-identity-pool")
-
 # Create a cluster in the new network and subnet
 gke_cluster = gcp.container.Cluster("cluster-1", 
     name = gke_cluster_name,
+    deletion_protection=False,
     location = gcp_region,
     network = gke_network,
+    networking_mode="VPC_NATIVE",
     initial_node_count = gke_master_node_count,
-    #remove_default_node_pool = True,
+    remove_default_node_pool = True,
     min_master_version = gke_master_version,
-    enable_autopilot=False,
+    workload_identity_config=gcp.container.ClusterWorkloadIdentityConfigArgs(
+        workload_pool=str(gcp_project)+".svc.id.goog",
+    ),
+    addons_config=gcp.container.ClusterAddonsConfigArgs(
+        gcs_fuse_csi_driver_config={
+            "enabled": "True",
+        }, 
+    ),
+    node_config=gcp.container.ClusterNodeConfigArgs(
+        oauth_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        shielded_instance_config={
+            "enable_secure_boot" : "True",
+            "enable_integrity_monitoring": "True",
+        },
+        #guest_accelerators=[gcp.container.ClusterNodeConfigGuestAcceleratorArgs(
+        #    type="nvidia-tesla-k80",
+        #    count=1,
+        #)],
+    ),
+    node_pool_auto_config=gcp.container.ClusterNodePoolAutoscalingArgs(
+        min_node_count=1,
+        max_node_count=4,
+    ),
 )
+
+# Obtain the kubeconfig from our GKE cluster.
+#kubeconfig = gke_cluster.kube_config.apply(lambda config: config.raw_kubeconfig_output)
+
+# Create a Kubernetes provider instance that uses our GKE cluster from above.
+##k8s_provider = k8s.Provider("k8s_provider", kubeconfig=kubeconfig)
+
+# Create a Kubernetes Service Account.
+#ksa = k8s.core.v1.ServiceAccount("ksa", metadata={"namespace": "default"}, opts=pulumi.ResourceOptions(provider=k8s_provider))
+
+# Create a Google Service Account.
+#gsa = gcp.service_account.Account("gsa", account_id="my-gsa")
+
+# Create a IAM policy binding between the Google Service Account and the Kubernetes Service Account.
+#iam_binding = gcp.service_account.IAMBinding("iam_binding",
+#  service_account_id=gsa.name,
+#  role="roles/iam.workloadIdentityUser",
+#  members=[pulumi.Output.all(gke_cluster.location, gke_cluster.name).apply(lambda lc: f"serviceAccount:{lc[0]}.svc.id.goog[default/{ksa.metadata['name']}]#")])
 
 # Defining the GKE Node Pool
 gke_nodepool = gcp.container.NodePool("nodepool-1",
@@ -63,12 +97,20 @@ gke_nodepool = gcp.container.NodePool("nodepool-1",
         preemptible = False,
         machine_type = gke_ml_machine_type,
         disk_size_gb = 20,
-        guest_accelerators=[gcp.container.ClusterNodeConfigGuestAcceleratorArgs(
+        ephemeral_storage_local_ssd_config={
+            "local_ssd_count":"2",
+        },
+        guest_accelerators=[gcp.container.NodePoolNodeConfigGuestAcceleratorArgs(
             type="nvidia-l4",
             count=2,
+            gpu_driver_installation_config={
+                "gpu_driver_version" : "LATEST",
+            },
         )],
         metadata = {
-            "install-nvidia-driver": "True"
+            "install-nvidia-driver": "True",
+            #"nvidia-driver-installer": "https://us.download.nvidia.com/XFree86/Linux-x86_64/",
+            #"nvidia-gpu-driver-version": "390.46",
         },
         oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"],
         shielded_instance_config = gcp.container.NodePoolNodeConfigShieldedInstanceConfigArgs(
@@ -79,7 +121,7 @@ gke_nodepool = gcp.container.NodePool("nodepool-1",
     # Set the Nodepool Autoscaling configuration
     autoscaling = gcp.container.NodePoolAutoscalingArgs(
         min_node_count = 1,
-        max_node_count = 3
+        max_node_count = 2
     ),
     # Set the Nodepool Management configuration
     management = gcp.container.NodePoolManagementArgs(
@@ -88,9 +130,10 @@ gke_nodepool = gcp.container.NodePool("nodepool-1",
     )
 )
 
-#mixtral =  ConfigFile(
+#mixtral =  k8s.yaml.ConfigFile(
 #    "mixtral",
-#    file="k8s/mixtral-huggingface.yaml"
+#    depends_on=[gke_nodepool],
+#    file="k8s/mixtral-huggingface.yaml",
 #)
 
 # Create a GCP service account for the nodepool
