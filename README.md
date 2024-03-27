@@ -6,7 +6,7 @@ This example will demostrate how to serve [Mixtral 8X7B](https://mistral.ai/news
 
 ## What is Mistral?
 
-Mixtral 8X7B is the latest LLM provided by [Mistral.ai](https://mistral.ai "Mistral.ai")
+Mixtral 8X7B is the latest LLM provided by [Mistral.ai](https://mistral.ai "Mistral.ai"). You can learn more about it [here](https://mistral.ai/news/mixtral-of-experts/). To interface with the model, we will be using [Hugging Face](https://huggingface.co/mistralai/Mixtral-8x7B-v0.1) and it's [text generation inference](https://huggingface.co/docs/text-generation-inference/en/index).
 
 ## Before we get started... 
 Make sure you have access to a Google Cloud project that supports NVIDIA L4s in your desired region per your quotas. This tutorial uses `us-central1` but you can use a different one if you choose to do so. Also make sure that you have acceess to a terminal that can execute `kubectl`.
