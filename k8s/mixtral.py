@@ -92,6 +92,7 @@ class Mixtral:
                 ),
             ), opts=pulumi.ResourceOptions(provider=self.provider))
         
+    def mixtralService(self):
         service = kubernetes.core.v1.Service("mixtral8x7bService",
             metadata=kubernetes.meta.v1.ObjectMetaArgs(
                 name="mixtral-8x7b-service",
@@ -109,4 +110,3 @@ class Mixtral:
             ),opts=pulumi.ResourceOptions(provider=self.provider))
         
         return service
-

@@ -136,12 +136,14 @@ kubeconfig = kubernetes.Provider('gke_k8s', kubeconfig=k8s_config, opts=pulumi.R
 
 deploy = mixtral(kubeconfig)
 
-service = deploy.mixtral8x7b()
+service = deploy.mixtralService()
+deployment = deploy.mixtral8x7b()
 
 # Export the Service's IP address
-service_ip = pulumi.Output.all(service.status).apply(
-    lambda status: status['load_balancer']['ingress'][0]['ip'] if status['load_balancer']['ingress'] else None)
-pulumi.export('service_ip', service_ip)
+service_ip = service.status.apply(
+    lambda status: status.load_balancer.ingress[0].ip if status.load_balancer.ingress else None
+)
 
+pulumi.export('service_ip', service_ip)
 pulumi.export("clusterName", gke_cluster.name)
 pulumi.export("clusterId", gke_cluster.id)
