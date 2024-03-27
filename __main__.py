@@ -1,7 +1,7 @@
 import pulumi
 import pulumi_gcp as gcp
 import pulumi_kubernetes as kubernetes
-#from k8s import mixtral as mixtral
+from k8s.mixtral import Mixtral as mixtral
 
 # Get some provider-namespaced configuration values
 config = pulumi.Config()
@@ -17,21 +17,6 @@ gke_master_node_count = config.get_int("nodesPerZone", 1)
 gke_nodepool_name = config.get("nodepoolName", "mixtral-nodepool")
 gke_nodepool_node_count = config.get_int("nodesPerZone", 2)
 gke_ml_machine_type = config.get("mlMachines", "g2-standard-24")
-
-# Create a new network
-#gke_network = gcp.compute.Network(
-#    "gke-network",
-#    auto_create_subnetworks=False,
-#    description="A virtual network for your GKE cluster(s)"
-#)
-
-# Create a subnet in the new network
-#gke_subnet = gcp.compute.Subnetwork(
-#    "gke-subnet",
-#    ip_cidr_range="10.128.0.0/12",
-#    network=gke_network.id,
-#    private_ip_google_access=True
-#)
 
 # Create a cluster in the new network and subnet
 gke_cluster = gcp.container.Cluster("cluster-1", 
@@ -57,10 +42,6 @@ gke_cluster = gcp.container.Cluster("cluster-1",
             "enable_secure_boot" : "True",
             "enable_integrity_monitoring": "True",
         },
-        #guest_accelerators=[gcp.container.ClusterNodeConfigGuestAcceleratorArgs(
-        #    type="nvidia-tesla-k80",
-        #    count=1,
-        #)],
     ),
 )
 
@@ -136,10 +117,7 @@ users:
 """.format(info[2]['cluster_ca_certificate'], info[1], '{0}_{1}_{2}'.format(gcp_project, gcp_zone, info[0])))
 
 # Make a Kubernetes provider instance that uses our cluster from above.
-kubeconfig = kubernetes.Provider('gke_k8s', kubeconfig=k8s_config)
-
-# Create a Kubernetes provider instance that uses our cluster from above
-#cluster_provider = kubernetes.Provider('gke_k8s', kubeconfig=kubeconfig)
+kubeconfig = kubernetes.Provider('gke_k8s', kubeconfig=k8s_config, opts=pulumi.ResourceOptions(depends_on=[gke_nodepool]))
 
 # Create a GCP service account for the nodepool
 #gke_nodepool_sa = gcp.serviceaccount.Account(
@@ -150,12 +128,20 @@ kubeconfig = kubernetes.Provider('gke_k8s', kubeconfig=k8s_config)
 #    depends_on=[gke_cluster]
 #)
 
-#pulumi.export("clusterName", gke_cluster.name)
-#pulumi.export("clusterId", gke_cluster.id)
+#mixtral =  kubernetes.yaml.ConfigFile(
+#    "mixtral",
+#    file="k8s/mixtral-huggingface.yaml",
+#    opts=pulumi.ResourceOptions(provider=kubeconfig,depends_on=[gke_nodepool]),
+#)
 
+deploy = mixtral(kubeconfig)
 
-mixtral =  kubernetes.yaml.ConfigFile(
-    "mixtral",
-    file="k8s/mixtral-huggingface.yaml",
-    opts=pulumi.ResourceOptions(provider=kubeconfig,depends_on=[gke_nodepool]),
-)
+service = deploy.mixtral8x7b()
+
+# Export the Service's IP address
+service_ip = pulumi.Output.all(service.status).apply(
+    lambda status: status['load_balancer']['ingress'][0]['ip'] if status['load_balancer']['ingress'] else None)
+pulumi.export('service_ip', service_ip)
+
+pulumi.export("clusterName", gke_cluster.name)
+pulumi.export("clusterId", gke_cluster.id)
